@@ -3,7 +3,7 @@ pd.options.mode.chained_assignment = None  # default='warn: to suppress SettingW
 import numpy as np
 import seaborn as sns
 from pylab import mpl, plt
-from Data_handler import Data_manager
+from Data_manager import Data_manager
 plt.style.use('seaborn')
 mpl.rcParams['savefig.dpi'] = 300
 mpl.rcParams['font.family'] = 'serif'
@@ -91,7 +91,7 @@ evolved_rf = GAFeatureSelectionCV(model,
                                   cv=num_folds,
                                   generations=30,
                                   population_size=pop_size,
-                                  scoring='accuracy',
+                                  scoring=scoring,
                                   tournament_size=5,
                                   keep_top_k=1,  #n of best solutions to keep
                                   verbose=True,
@@ -121,7 +121,7 @@ if True:
 
     param_grid = {'min_weight_fraction_leaf': Continuous(0.01, 0.5, distribution='log-uniform'),
                   'max_depth': Integer(2, 4),
-                  'min_samples_leaf': Integer(2, 100),
+                  'min_samples_leaf': Integer(2, 50),
                   'n_estimators': Integer(100, 300),
                   'max_features': Integer(2, len(best_features))}
 
@@ -131,7 +131,7 @@ if True:
     # The main class from sklearn-genetic-opt
     evolved_rf = GASearchCV(estimator=clf,
                                   cv=num_folds,
-                                  scoring='accuracy',
+                                  scoring=scoring,
                                   param_grid=param_grid,
                                   population_size=800,
                                   generations=30,
@@ -144,6 +144,7 @@ if True:
     evolved_rf.fit(X_train[best_features], Y_train, callbacks=callback)
 
     # Best parameters found
+    print('\nBest parameters found by Genetic algo:')
     print(evolved_rf.best_params_)
     # Use the model fitted with the best parameters
     predictions = evolved_rf.predict(X_test[best_features])

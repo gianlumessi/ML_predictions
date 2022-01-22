@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import os
 
 class Data_manager:
 
@@ -12,9 +13,9 @@ class Data_manager:
         self.pair = pair
         self.start_date = start_date
         self.end_date = end_date
-        if path is None:
-            self.path = 'C:/Users/Gianluca/Desktop/Coding projects/Crypto_prediction_with_ML/'
-        else:
+        if path == 'local_file':
+            self.path = os.path.dirname(os.path.realpath(__file__)).replace(os.sep, '/') + '/Data/'# 'C:/Users/Gianluca/Desktop/Coding projects/Crypto_prediction_with_ML/'
+        elif path is not None:
             self.path = path
         self.where = where
         if where == None:
@@ -28,8 +29,7 @@ class Data_manager:
             self.df[idx] = pd.to_datetime(self.df[idx])
             self.df.set_index(idx, inplace=True)
             self.price_col = 'price'
-            print('Data from file:', p)
-            print('Data snapped 00:00:00 UTC time')
+            print('Price data from file:', p)
 
         elif self.where == 'yahoo':
             if self.end_date is not None:
