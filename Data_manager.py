@@ -186,13 +186,13 @@ class Data_manager:
 
 
     def combo_subroutine_different(self, df0, l_1, l_2, lst):
+
         df1 = pd.DataFrame()
 
         for l in l_1:
             for s in l_2:
                 col = l + '_' + s
-                #df0[col] = self.df[l] - self.df[s]
-                df1[col] = self.df[l] - self.df[s]
+                df1[col] = (self.df[l] - self.df[s])/self.df[s]
                 lst.append(col)
 
         df0 = pd.concat([df0, df1], axis=1)

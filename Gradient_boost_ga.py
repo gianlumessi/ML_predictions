@@ -89,24 +89,24 @@ Y_test = np.sign(test_data['return'])
 
 print('Genetic search of features on Gradient Booster')
 model = GradientBoostingClassifier(max_depth=3, n_estimators=100, learning_rate=0.1)
-evolved_tree = GAFeatureSelectionCV(model,
-                                    cv=num_folds,
-                                    generations=1,
-                                    population_size=500,
-                                    scoring=scoring,
-                                    tournament_size=5,
-                                    keep_top_k=1,  #n of best solutions to keep
-                                    verbose=True,
-                                    n_jobs=-1)
+evolved_gb_ = GAFeatureSelectionCV(model,
+                                   cv=num_folds,
+                                   generations=1,
+                                   population_size=500,
+                                   scoring=scoring,
+                                   tournament_size=5,
+                                   keep_top_k=1,  #n of best solutions to keep
+                                   verbose=True,
+                                   n_jobs=-1)
 
 callback = ConsecutiveStopping(generations=5, metric='fitness')
-evolved_tree.fit(X_train, Y_train, callbacks=callback)
+evolved_gb_.fit(X_train, Y_train, callbacks=callback)
 
-plot_fitness_evolution(evolved_tree)
+plot_fitness_evolution(evolved_gb_)
 
-best_features = list(X_train.columns[evolved_tree.best_features_].values)
+best_features = list(X_train.columns[evolved_gb_.best_features_].values)
 print('Best features:', best_features)
-print('Best estimator:', evolved_tree.best_estimator_)
+print('Best estimator:', evolved_gb_.best_estimator_)
 
 
 print('Genetic search on Gradient booster')
@@ -147,3 +147,5 @@ print('\n- Accuracy score on test set GB:\t', accuracy_score(Y_test, predictions
 Utils.show_confusion_matrix(Y_test, predictions, 'GB after grid search')
 result_data = dm.get_result_data(test_data, predictions)
 Utils.plot_oos_results(result_data, 'Out of sample results, GB after grid search')
+
+plt.show()
