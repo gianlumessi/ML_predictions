@@ -49,29 +49,19 @@ scoring = 'accuracy'
 kfold = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
 
 # features
-arr1 = [1, 5, 10, 20, 60, 7, 14, 28, 84]
-arr2 = [5, 10, 20, 60, 7, 14, 28, 84]
-lags_price = arr1.copy()
-lags_price_daily_rets = arr2.copy()
-lags_rets = arr1.copy()
-lags_sma = arr2.copy()
-lags_std = arr2.copy()
-lags_rsi = arr2.copy()
-lags_search = arr2.copy()
-lags_search_sma = arr2.copy()
+lags_p_smas = [7, 14, 28, 60]
+lags_smas = [7, 14, 28, 60]
+lags_rsi = [7, 14, 28, 60]
+lags_std = [7, 14, 28, 60]
 
-#####
+#######
 ###########
-#################
-#######################
+###############
 
-dm = Data_manager(coin, s_date, search_term=search_term, path='local_file') #path='local_file' looks for files in local folder
+dm = Data_manager(coin, s_date, search_term=search_term, path='local_file')
 dm.download_price_data()
 dm.merge_search_with_price_data()
-dm.features_engineering(lags_p_drets=lags_price_daily_rets, lags_rets=lags_rets, lags_smas=lags_sma, lags_std=lags_std,
-                             lags_rsi=lags_rsi, lags_search=lags_search, lags_search_sma=lags_search_sma, lags_price=lags_price)
-dm.combine_features()
-
+dm.features_engineering_for_dec_tree(lags_p_smas, lags_smas, lags_rsi, lags_std)
 feature_cols = dm.feature_cols
 
 print('Feature cols:', feature_cols)
@@ -81,17 +71,22 @@ data = dm.df
 training_data = data.loc[:date_split]
 test_data = data.loc[date_split:]
 
+ret_1 = dm.ret_1d
 X_train = training_data[feature_cols]
-Y_train = np.sign(training_data['return'])
+Y_train = np.sign(training_data[ret_1])
 
 X_test = test_data[feature_cols]
-Y_test = np.sign(test_data['return'])
+Y_test = np.sign(test_data[ret_1])
+
+################################################## 1 ############################################################
+##############################################################################################################
+n_gens = 2
 
 print('Genetic search of features on Gradient Booster')
 model = GradientBoostingClassifier(max_depth=3, n_estimators=100, learning_rate=0.1)
 evolved_gb_ = GAFeatureSelectionCV(model,
                                    cv=num_folds,
-                                   generations=1,
+                                   generations=2,
                                    population_size=500,
                                    scoring=scoring,
                                    tournament_size=5,
@@ -108,6 +103,11 @@ best_features = list(X_train.columns[evolved_gb_.best_features_].values)
 print('Best features:', best_features)
 print('Best estimator:', evolved_gb_.best_estimator_)
 
+X_test_best_features = X_test.loc[:, best_features]
+X_train_best_features = X_train.loc[:, best_features]
+
+print('\nShape of X_test_best_features', X_test_best_features.shape)
+print('Shape of X_train_best_features', X_train_best_features.shape)
 
 print('Genetic search on Gradient booster')
 
@@ -127,13 +127,13 @@ evolved_gb = GASearchCV(estimator=clf,
                         scoring=scoring,
                         param_grid=param_grid,
                         population_size=800,
-                        generations=1,
+                        generations=2,
                         n_jobs=-1,
                         keep_top_k=1,
                         verbose=True)
 
 callback = ConsecutiveStopping(generations=5, metric='fitness')
-evolved_gb.fit(X_train[best_features], Y_train, callbacks=callback)
+evolved_gb.fit(X_train_best_features, Y_train, callbacks=callback)
 
 # Best parameters found
 print('\nBest parameters found by Genetic algo:')
@@ -142,7 +142,7 @@ print(evolved_gb.best_params_)
 
 ########## Check results on test data ##############
 
-predictions = evolved_gb.predict(X_test[best_features])
+predictions = evolved_gb.predict(X_test_best_features)
 print('\n- Accuracy score on test set GB:\t', accuracy_score(Y_test, predictions), '\n')
 Utils.show_confusion_matrix(Y_test, predictions, 'GB after grid search')
 result_data = dm.get_result_data(test_data, predictions)

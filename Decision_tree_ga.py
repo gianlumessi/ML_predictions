@@ -36,17 +36,10 @@ seed = 7
 scoring = 'accuracy'
 kfold = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
 
-# features
-arr1 = [1, 5, 10, 20, 60, 7, 14, 28, 84]
-arr2 = [5, 10, 20, 60, 7, 14, 28, 84]
-lags_price = arr1.copy()
-lags_price_daily_rets = arr2.copy()
-lags_rets = arr1.copy()
-lags_sma = arr2.copy()
-lags_std = arr2.copy()
-lags_rsi = arr2.copy()
-lags_search = arr2.copy()
-lags_search_sma = arr2.copy()
+lags_p_smas = [7, 14, 28, 60]
+lags_smas = [7, 14, 28, 60]
+lags_rsi = [7, 14, 28, 60]
+lags_std = [7, 14, 28, 60]
 
 #####
 ###########
@@ -56,10 +49,7 @@ lags_search_sma = arr2.copy()
 dm = Data_manager(coin, s_date, search_term=search_term, path='local_file') #path='local_file' looks for files in local folder
 dm.download_price_data()
 dm.merge_search_with_price_data()
-dm.features_engineering(lags_p_drets=lags_price_daily_rets, lags_rets=lags_rets, lags_smas=lags_sma, lags_std=lags_std,
-                             lags_rsi=lags_rsi, lags_search=lags_search, lags_search_sma=lags_search_sma, lags_price=lags_price)
-dm.combine_features()
-
+dm.features_engineering_for_dec_tree(lags_p_smas, lags_smas, lags_rsi, lags_std)
 feature_cols = dm.feature_cols
 
 print('Feature cols:', feature_cols)
@@ -69,17 +59,22 @@ data = dm.df
 training_data = data.loc[:date_split]
 test_data = data.loc[date_split:]
 
+ret_1 = dm.ret_1d
 X_train = training_data[feature_cols]
-Y_train = np.sign(training_data['return'])
+Y_train = np.sign(training_data[ret_1])
 
 X_test = test_data[feature_cols]
-Y_test = np.sign(test_data['return'])
+Y_test = np.sign(test_data[ret_1])
+
+################################################## 1 ############################################################
+##############################################################################################################
+n_gens = 15
 
 print('Genetic search of features on Decision tree')
-model = DecisionTreeClassifier(max_depth=3, criterion='gini', min_samples_leaf=10, splitter='best')
+model = DecisionTreeClassifier(max_depth=4, criterion='gini', min_samples_leaf=10, splitter='best')
 evolved_tree = GAFeatureSelectionCV(model,
                                     cv=num_folds,
-                                    generations=1,
+                                    generations=n_gens,
                                     population_size=500,
                                     scoring=scoring,
                                     tournament_size=5,
@@ -99,17 +94,23 @@ print('Best estimator:', evolved_tree.best_estimator_)
 text_representation = tree.export_text(model, feature_names=best_features) #list(best_features.values)
 print(text_representation)
 
+X_test_best_features = X_test.loc[:, best_features]
+X_train_best_features = X_train.loc[:, best_features]
+
+print('\nShape of X_test_best_features', X_test_best_features.shape)
+print('Shape of X_train_best_features', X_train_best_features.shape)
 
 # Predict only with the subset of selected features
-predictions = evolved_tree.predict(X_test[best_features])
-print('- Accuracy score on test set (CART):\t', accuracy_score(Y_test, predictions), '\n')
-Utils.show_confusion_matrix(Y_test, predictions, 'CART')
+predictions = evolved_tree.predict(X_test_best_features)
+print('\n- Accuracy score on test set (Decision tree):\t', accuracy_score(Y_test, predictions), '\n')
+Utils.show_confusion_matrix(Y_test, predictions, 'Decision tree with best features found via ga')
 result_data = dm.get_result_data(test_data, predictions)
-Utils.plot_oos_results(result_data, 'Out of sample results, CART')
+Utils.plot_oos_results(result_data, 'Out of sample results using best features found via ga, Dec tree')
 plot_tree_(model, best_features)
 
 
-#######################################################
+################################################# 2 #############################################################
+##############################################################################################################
 print('Hyper params optimisation via genetic algo on Decision tree')
 
 param_grid = {'criterion': Categorical(['gini', 'entropy']),
@@ -126,19 +127,19 @@ evolved_clf = GASearchCV(estimator=clf,
                         scoring=scoring,
                         param_grid=param_grid,
                         population_size=800,
-                        generations=1,
+                        generations=n_gens,
                         n_jobs=-1,
                         keep_top_k=1,
                         verbose=True)
 
 callback = ConsecutiveStopping(generations=5, metric='fitness')
-evolved_clf.fit(X_train[best_features], Y_train, callbacks=callback)
+evolved_clf.fit(X_train_best_features, Y_train, callbacks=callback)
 
 # Best parameters found
 print(evolved_clf.best_params_)
 # Use the model fitted with the best parameters
-predictions = evolved_clf.predict(X_test[best_features])
-print('- Accuracy score on test set RHyper params optimisation via genetic algo on Decision tree:\t', accuracy_score(Y_test, predictions), '\n')
+predictions = evolved_clf.predict(X_test_best_features)
+print('- Accuracy score on test set Hyper params optimisation via genetic algo on Decision tree:\t', accuracy_score(Y_test, predictions), '\n')
 Utils.show_confusion_matrix(Y_test, predictions, 'Hyper params optimisation via genetic algo on Decision tree')
 result_data = dm.get_result_data(test_data, predictions)
 Utils.plot_oos_results(result_data, 'Out of sample results, Hyper params optimisation via genetic algo on Decision tree')
@@ -152,23 +153,23 @@ if False:
     ## Results on test data set
     # prepare model
 
-    max_depth = [2, 3, 4]
+    max_depth = [2, 3, 4, 5]
     min_samples_leaf = [11, 33, 66, 100]
     criterion = ["gini", "entropy"]
     splitter = ['best', 'random']
     grid = dict(max_depth=max_depth, criterion=criterion, min_samples_leaf=min_samples_leaf, splitter=splitter)
-    grid_result_cart = Utils.grid_search_(X_train[best_features], Y_train, grid, scoring, kfold, DecisionTreeClassifier(), 'CART')
+    grid_result_cart = Utils.grid_search_(X_train_best_features, Y_train, grid, scoring, kfold, DecisionTreeClassifier(), 'CART')
 
     model_cart = DecisionTreeClassifier(criterion=grid_result_cart.best_params_['criterion'],
                                    max_depth=grid_result_cart.best_params_['max_depth'],
                                    min_samples_leaf=grid_result_cart.best_params_['min_samples_leaf'],
                                     splitter = grid_result_cart.best_params_['splitter'])
 
-    model_cart.fit(X_train[best_features], Y_train)
+    model_cart.fit(X_train_best_features, Y_train)
 
     ########## Check results on test data ##############
 
-    predictions = model_cart.predict(X_test[best_features])
+    predictions = model_cart.predict(X_test_best_features)
     print('\n- Accuracy score on test set (CART after grid search):\t', accuracy_score(Y_test, predictions), '\n')
     Utils.show_confusion_matrix(Y_test, predictions, 'CART after grid search')
     result_data = dm.get_result_data(test_data, predictions)

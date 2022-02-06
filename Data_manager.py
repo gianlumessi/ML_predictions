@@ -20,6 +20,7 @@ class Data_manager:
         self.where = where
         if where == None:
             self.where = 'yahoo'
+        self.ret_1d = 'ret_1d'
 
     def download_price_data(self):
         p = self.path + 'btc-usd-coingecko_2015.csv'
@@ -30,6 +31,7 @@ class Data_manager:
             self.df.set_index(idx, inplace=True)
             self.price_col = 'price'
             print('Price data from file:', p)
+            print('Data ' + idx, self.df.index[0])
 
         elif self.where == 'yahoo':
             if self.end_date is not None:
@@ -44,6 +46,7 @@ class Data_manager:
 
 
     def merge_search_with_price_data(self):
+        #TODO: if search term is given, this should be done automatically
 
         if self.search_term == 'bitcoin':
             filen = 'bicoin_searches_from_2015.xlsx'
@@ -63,72 +66,94 @@ class Data_manager:
         self.df = self.df.merge(df_search[self.search_term], left_index=True, right_index=True)
         self.df = self.df.ffill().dropna()
 
-
-    def features_engineering(self, lags_p_drets=None, lags_rets=None, lags_smas=None, lags_std=None,
-                             lags_rsi=None, lags_search=None, lags_search_sma=None, lags_price=None):
+    def features_engineering_for_dec_tree(self, lags_p_smas, lags_smas, lags_rsi=None, lags_std=None, lags_search=None):
         '''
 
-        :param lags_p_drets:
-        :param lags_rets:
-        :param lags_smas:
-        :param lags_std:
-        :param lags_rsi:
-        :param lags_search:
-        :param lags_search_sma:
-        :param lags_price:
-        :return:
 
         Note: not all cols are added to the list of features. This is because features such as past returns or past
         price are useless if not compared to something else (e.g. latest monthly return vs latest daily return).
         '''
 
+        #TODO list:
+        # 1. you should calculate the percentile of most of the features below.
+        # 2. You should consider that when doing the kfold you, use data that should not know - CORRECT IT
+        # 3. Given you are using smas and other quantities that depend on previous data, is this affecting the kfold validation?
+
+        ret_str = self.ret_1d
+        ret_1d_lagged_str = 'feat_ret_1d'
         feature_cols = []
-        col_list = []
-        self.df['return'] = np.log(self.df[self.price_col] / self.df[self.price_col].shift(1))
+        self.df[ret_str] = np.log(self.df[self.price_col] / self.df[self.price_col].shift(1))
+        self.df[ret_1d_lagged_str] = self.df[ret_str].shift(1)
+        self.df['feat_ret_week'] = np.log(self.df[self.price_col] / self.df[self.price_col].shift(7)).shift(1)
+        feature_cols.append(ret_1d_lagged_str)
+        feature_cols.append('feat_ret_week')
 
-        # lagged prices features
-        if lags_price is not None:
-            for i in range(len(lags_price)):
-                n = lags_price[i]
-                col = 'feat_price_' + str(n)  # f'lag_{lag}'
-                self.df[col] = self.df[self.price_col].shift(n)
-                col_list.append(col)
+        # 1-day lagged price
+        self.df['price_lag_1'] = self.df[self.price_col].shift(1)
 
-        # price daily return features
-        if lags_p_drets is not None:
-            for i in range(len(lags_p_drets)):
-                n = lags_p_drets[i]
-                col = 'feat_dreturn_' + str(n)  # f'lag_{lag}'
-                self.df[col] = self.df['return'].shift(n)
-                col_list.append(col)
+        # SMAs to be compared to 1-day lagged price
+        sma_p_cols = []
+        for i in range(len(lags_p_smas)):
+            n = lags_p_smas[i]
+            col = 'sma_p_' + str(n)
+            self.df[col] = self.df[self.price_col].rolling(n).mean().shift(2) #shift 2 is correct because this is compared to 1-day lagged price (which is one day ahead, hence the 2)
+            sma_p_cols.append(col)
 
-        # price return features
-        if lags_rets is not None:
-            for i in range(len(lags_rets)):
-                n = lags_rets[i]
-                col = 'feat_return_' + str(n)  # f'lag_{lag}'
-                self.df[col] = np.log(self.df[self.price_col] / self.df[self.price_col].shift(n))
-                self.df[col] = self.df[col].shift(1)
-                col_list.append(col)
+        # Feature: SMAs vs last price
+        for c in sma_p_cols:
+            col = 'feat_price1_vs_'+c
+            self.df[col] = np.log(self.df['price_lag_1'] / self.df[c])
+            feature_cols.append(col)
 
-        # add SMA (simple moving average) features
-        if lags_smas is not None:
-            for i in range(len(lags_smas)):
-                n = lags_smas[i]
-                col = 'feat_sma_' + str(n)
-                self.df[col] = self.df[self.price_col].rolling(n).mean().shift(1)
-                col_list.append(col)
+        # SMAs to be compared against 1 year SMA
+        #TODO careful, this is data intensive
+        sma_cols = []
+        for i in range(len(lags_smas)):
+            n = lags_smas[i]
+            col = 'sma_' + str(n)
+            self.df[col] = self.df[self.price_col].rolling(n).mean().shift(1)
+            sma_cols.append(col)
 
-        # add rolling variance columns as features
+        # Features: short sma vs long sma
+        self.df['sma_6m'] = self.df[self.price_col].rolling(180).mean().shift(1)
+        self.df['sma_1y'] = self.df[self.price_col].rolling(365).mean().shift(1)
+        for c in sma_cols:
+            col1 = 'feat_' + c + '_sma_1y'
+            col2 = 'feat_' + c + '_sma_6m'
+            self.df[col1] = np.log(self.df[c] / self.df['sma_1y'])
+            self.df[col2] = np.log(self.df[c] / self.df['sma_6m'])
+            feature_cols.append(col1)
+            feature_cols.append(col2)
+
+        data_ = {'r1': self.df[ret_1d_lagged_str], 'r2': self.df[ret_1d_lagged_str].shift(1),
+                 'r3': self.df[ret_1d_lagged_str].shift(2)}
+        df_ = pd.DataFrame(data=data_)
+
+        #Features: momentum indicator that looks at previous 2 days
+        conditions = [(df_['r1'] > 0) & (df_['r2'] > 0), (df_['r1'] < 0) & (df_['r2'] < 0)]
+        values = [1, -1]
+        self.df['feat_mom_2'] = np.select(conditions, values, default=0)
+
+        #Features: momentum indicator that looks at previous 3 days
+        conditions = [(df_['r1'] > 0) & (df_['r2'] > 0) & (df_['r3'] > 0),
+                      (df_['r1'] < 0) & (df_['r2'] < 0) & (df_['r3'] < 0)]
+        values = [1, -1]
+        self.df['feat_mom_3'] = np.select(conditions, values, default=0)
+
+        feature_cols.append('feat_mom_2')
+        feature_cols.append('feat_mom_3')
+
+        # Features: rolling variance columns as features
         if lags_std is not None:
             for i in range(len(lags_std)):
                 n = lags_std[i]
                 col = 'feat_std_' + str(n)
-                self.df[col] = self.df['return'].rolling(n).std().shift(1)
-                col_list.append(col)
+                self.df[col] = self.df[ret_str].rolling(n).std().shift(1)
+                feature_cols.append(col)
 
+        # Features: RSI (Relative Strength index)
         if lags_rsi is not None:
-            # add RSI (Relative Strenght index) columns as features
+
             self.df['change'] = self.df[self.price_col].diff()
             self.df['dUp'] = self.df['change'].copy()
             self.df['dDown'] = self.df['change'].copy()
@@ -147,93 +172,21 @@ class Data_manager:
                 self.df[col] = rsi.shift(1)
                 feature_cols.append(col)
 
-        #features engineering for search terms
+        #Features: latest week average searches vs past 3 weeks average searches
         if self.search_term is not None:
-            if (lags_search is None or lags_search_sma is None):
-                print('A search term was given, but attributes for features engineering of search terms are missing!!!')
-
-            for i in range(len(lags_search)):
-                n = lags_search[i]
-                col = 'feat_search_lag_' + str(n)  # f'lag_{lag}'
-                self.df[col] = self.df[self.search_term].shift(n)
-                col_list.append(col)
-
-            for i in range(len(lags_search_sma)):
-                n = lags_search_sma[i]
-                col = 'feat_search_sma_' + str(n)
-                self.df[col] = self.df[self.search_term].rolling(n).mean().shift(1)
-                col_list.append(col)
+            data_ = {'week1_avg_search': self.df[self.search_term].shift(1).rolling(7).mean(),
+                     'week3_avg_search': self.df[self.search_term].shift(8).rolling(21).mean()} #shift by 8 since need to shift by 1 week + 1 day
+            df_ = pd.DataFrame(data=data_)
+            self.df['feat_search'] = np.log(df_['week1_avg_search'] / df_['week3_avg_search'])
+            feature_cols.append('feat_search')
+            print('Features using google trends have been created...')
+        else:
+            print('Search term is missing. Google trend data will not be used!!!')
 
         ll = feature_cols.copy()
-        ll.append('return')
-        self.df = self.df[ll + col_list].dropna()
+        ll.append(self.ret_1d)
+        self.df = self.df[ll].dropna()
         self.feature_cols = feature_cols
-
-
-    def combo_subroutine(self, df0, str, lst):
-        cols = [col for col in self.df.columns if str in col]
-        if cols is not None:
-            df1 = pd.DataFrame()
-            for i in range(len(cols)):
-                for j in range(i+1, len(cols)-1):
-                    col = cols[i] + '_' + cols[j]
-                    #df0[col] = self.df[cols[i]] - self.df[cols[j]]
-                    df1[col] = self.df[cols[i]] - self.df[cols[j]]
-                    lst.append(col)
-
-        df0 = pd.concat([df0, df1], axis=1)
-        return df0, lst
-
-
-    def combo_subroutine_different(self, df0, l_1, l_2, lst):
-
-        df1 = pd.DataFrame()
-
-        for l in l_1:
-            for s in l_2:
-                col = l + '_' + s
-                df1[col] = (self.df[l] - self.df[s])/self.df[s]
-                lst.append(col)
-
-        df0 = pd.concat([df0, df1], axis=1)
-        return df0, lst
-
-
-    def combine_features(self):
-        '''
-        Create new features by combining (i.e. subtracting) existing features
-        :return:
-        '''
-
-        combined_cols = []
-        df_ = self.df.copy()
-
-        # lag price - sma
-        lag_price_cols = [col for col in self.df.columns if 'feat_price_' in col]
-        sma_cols = [col for col in self.df.columns if 'feat_sma_' in col]
-        if (lag_price_cols and sma_cols) is not None:
-            df_, combined_cols = self.combo_subroutine_different(df_, lag_price_cols, sma_cols, combined_cols)
-
-        # lag return
-        df_, combined_cols = self.combo_subroutine(df_, 'feat_return_', combined_cols)
-
-        # lag dreturn
-        df_, combined_cols = self.combo_subroutine(df_, 'feat_dreturn_', combined_cols)
-
-        # lag std
-        df_, combined_cols = self.combo_subroutine(df_, 'feat_std_', combined_cols)
-
-        if self.search_term is not None:
-            lag_search = [col for col in self.df.columns if 'feat_search_lag_' in col]
-            lag_search_sma = [col for col in self.df.columns if 'feat_search_sma_' in col]
-            if (lag_search or lag_search_sma) is None:
-                print('ERROR!! A search term is given but the lag_search columns or lag_search_sma are None!!')
-            else:
-                df_, combined_cols = self.combo_subroutine_different(df_, lag_search, lag_search_sma, combined_cols)
-
-        self.feature_cols = self.feature_cols + combined_cols
-        self.df = df_
-        print('Combined feature columns:', combined_cols)
 
 
     def split_train_test(self, date_split):
@@ -254,7 +207,7 @@ class Data_manager:
         df_ = df.copy()
 
         df_['prediction'] = preds
-        df_['strategy'] = df_['prediction'] * df_['return']
-        df_[['cum_return', 'cum_strategy']] = df_[['return', 'strategy']].cumsum().apply(np.exp)
+        df_['strategy'] = df_['prediction'] * df_[self.ret_1d]
+        df_[['cum_return', 'cum_strategy']] = df_[[self.ret_1d, 'strategy']].cumsum().apply(np.exp)
 
         return df_
