@@ -23,8 +23,13 @@ class Data_manager:
         self.ret_1d = 'ret_1d'
 
     def download_price_data(self):
-        p = self.path + 'btc-usd-coingecko_2015.csv'
-        if p is not None:
+        if self.path is not None:
+            if self.pair == 'BTC-USD':
+                p = self.path +'btc-usd-coingecko_2015.csv'
+            elif self.pair == 'ETH-USD':
+                p = self.path + 'eth-usd-coingecko_2016.csv'
+            elif self.pair == 'XRP-USD':
+                p = self.path + 'xrp-usd-coingecko_2016.csv'
             idx = 'snapped_at'
             self.df = pd.read_csv(p)
             self.df[idx] = pd.to_datetime(self.df[idx])
@@ -50,10 +55,15 @@ class Data_manager:
 
         if self.search_term == 'bitcoin':
             filen = 'bicoin_searches_from_2015.xlsx'
+        elif self.search_term == 'Ethereum':
+            filen = 'ethereum_eth__searches_from_Feb_2016.xlsx'
+        elif self.search_term == 'xrp':
+            filen = 'ripple_xrp_searches_from_Feb_2017.xlsx'
         else:
-            'ERROR!! No other search file stored for currencies other than bitcoin'
+            'ERROR!! No other search file stored for currencies other than bitcoin, eth and xrp'
 
-        print('Merging price data with search data...')
+        print('Reading search data from ' + filen)
+        print('Merging price data with search data ...')
 
         df_search = pd.read_excel(self.path + filen)
         idx = 'date'
@@ -66,7 +76,7 @@ class Data_manager:
         self.df = self.df.merge(df_search[self.search_term], left_index=True, right_index=True)
         self.df = self.df.ffill().dropna()
 
-    def features_engineering_for_dec_tree(self, lags_p_smas, lags_smas, lags_rsi=None, lags_std=None, lags_search=None):
+    def features_engineering_for_dec_tree(self, lags_p_smas, lags_smas, lags_rsi=None, lags_std=None):
         '''
 
 
@@ -195,10 +205,10 @@ class Data_manager:
         test_data = self.df.loc[date_split:]
 
         X_train = training_data[self.feature_cols]
-        Y_train = np.sign(training_data['return'])
+        Y_train = np.sign(training_data[self.ret_1d])
 
         X_test = test_data[self.feature_cols]
-        Y_test = np.sign(test_data['return'])
+        Y_test = np.sign(test_data[self.ret_1d])
 
         return X_train, Y_train, X_test, Y_test
 

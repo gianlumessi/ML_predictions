@@ -25,13 +25,13 @@ def plot_tree_(model, cols):
 
 
 ########## inputs ###############
-coin = 'BTC-USD'
+coin = 'ETH-USD'
 s_date = '2015-01-01'
-date_split = '2021-01-01'
-search_term = 'bitcoin'
+date_split = '2021-07-01'
+search_term = 'Ethereum' #values allowed so far: 'bitcoin', 'Ethereum', 'xrp'
 
 # test options for classification
-num_folds = 6
+num_folds = 8
 seed = 7
 scoring = 'accuracy'
 kfold = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
@@ -68,21 +68,24 @@ Y_test = np.sign(test_data[ret_1])
 
 ################################################## 1 ############################################################
 ##############################################################################################################
-n_gens = 15
+n_gens = 30
+consec_stop = 5
+pop_size = 800
+tourn_size = 5
 
-print('Genetic search of features on Decision tree')
+print('\n <--- Genetic search of features on Decision tree --->')
 model = DecisionTreeClassifier(max_depth=4, criterion='gini', min_samples_leaf=10, splitter='best')
 evolved_tree = GAFeatureSelectionCV(model,
                                     cv=num_folds,
                                     generations=n_gens,
-                                    population_size=500,
+                                    population_size=pop_size,
                                     scoring=scoring,
-                                    tournament_size=5,
+                                    tournament_size=tourn_size,
                                     keep_top_k=1,  #n of best solutions to keep
                                     verbose=True,
                                     n_jobs=-1)
 
-callback = ConsecutiveStopping(generations=5, metric='fitness')
+callback = ConsecutiveStopping(generations=consec_stop, metric='fitness')
 evolved_tree.fit(X_train, Y_train, callbacks=callback)
 
 plot_fitness_evolution(evolved_tree)
@@ -111,7 +114,7 @@ plot_tree_(model, best_features)
 
 ################################################# 2 #############################################################
 ##############################################################################################################
-print('Hyper params optimisation via genetic algo on Decision tree')
+print('\n <--- Hyper params optimisation via genetic algo on Decision tree --->')
 
 param_grid = {'criterion': Categorical(['gini', 'entropy']),
               'max_depth': Integer(2, 4),
@@ -126,13 +129,14 @@ evolved_clf = GASearchCV(estimator=clf,
                         cv=num_folds,
                         scoring=scoring,
                         param_grid=param_grid,
-                        population_size=800,
+                        population_size=pop_size,
                         generations=n_gens,
+                        tournament_size=tourn_size,
                         n_jobs=-1,
                         keep_top_k=1,
                         verbose=True)
 
-callback = ConsecutiveStopping(generations=5, metric='fitness')
+callback = ConsecutiveStopping(generations=consec_stop, metric='fitness')
 evolved_clf.fit(X_train_best_features, Y_train, callbacks=callback)
 
 # Best parameters found
