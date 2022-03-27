@@ -9,8 +9,6 @@ plt.style.use('seaborn')
 mpl.rcParams['savefig.dpi'] = 300
 mpl.rcParams['font.family'] = 'serif'
 
-from sklearn.model_selection import KFold
-from sklearn.metrics import confusion_matrix, accuracy_score
 from sklearn.ensemble import RandomForestClassifier
 from sklearn_genetic import GASearchCV, GAFeatureSelectionCV
 from sklearn_genetic.callbacks import ConsecutiveStopping
@@ -28,8 +26,13 @@ search_term = 'bitcoin'
 # test options for classification
 num_folds = 6
 seed = 7
-scoring = 'accuracy'
-kfold = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
+
+scoring = 'average_precision' #'accuracy'
+if scoring == 'average_precision':
+  from sklearn.metrics import average_precision_score as score_meth
+elif scoring == 'accuracy':
+  from sklearn.metrics import accuracy_score as score_meth
+
 
 # features
 lags_p_smas = [7, 14, 28, 60]
@@ -99,7 +102,7 @@ print('Shape of X_train_best_features', X_train_best_features.shape)
 
 # Predict only with the subset of selected features
 predictions = evolved_rf.predict(X_test_best_features)
-print('- Accuracy score on test set (RF after GA feature selection):\t', accuracy_score(Y_test, predictions), '\n')
+print('- Accuracy score on test set (RF after GA feature selection):\t', score_meth(Y_test, predictions), '\n')
 Utils.show_confusion_matrix(Y_test, predictions, 'RF after GA feature selection')
 result_data = dm.get_result_data(test_data, predictions)
 Utils.plot_oos_results(result_data, 'Out of sample results, RF after GA feature selection')
@@ -139,7 +142,7 @@ if True:
     print(evolved_rf.best_params_)
     # Use the model fitted with the best parameters
     predictions = evolved_rf.predict(X_test_best_features)
-    print('- Accuracy score on test set RF:\t', accuracy_score(Y_test, predictions), '\n')
+    print('- Accuracy score on test set RF:\t', score_meth(Y_test, predictions), '\n')
     Utils.show_confusion_matrix(Y_test, predictions, 'RF')
     result_data = dm.get_result_data(test_data, predictions)
     Utils.plot_oos_results(result_data, 'Out of sample results, RF')

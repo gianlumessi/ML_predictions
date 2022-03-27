@@ -18,6 +18,7 @@ from sklearn_genetic.space import Integer, Continuous, Categorical
 from imblearn.over_sampling import RandomOverSampler
 pd.set_option('display.max_columns', 500)
 
+from Backtester import BacktestLongShort
 
 def plot_tree_(model, cols):
     _ = plt.figure(figsize=(10, 6))
@@ -26,7 +27,8 @@ def plot_tree_(model, cols):
 
 ########## inputs ###############
 pair_dict = {'BTC': ['BTC-USD', 'bitcoin'], 'ETH': ['ETH-USD', 'Ethereum'], 'XRP': ['XRP-USD', 'xrp']}
-asset = 'ETH'
+asset = 'BTC'
+price_col_name = None
 
 coin = pair_dict[asset][0]
 search_term = pair_dict[asset][1] #values allowed so far: 'bitcoin', 'Ethereum', 'xrp'
@@ -90,10 +92,10 @@ Y_test = np.sign(test_data[ret_1])
 
 ################################################## 1 ############################################################
 ##############################################################################################################
-n_gens = 5
+n_gens = 0
 consec_stop = 3
-pop_size = 50
-tourn_size = 5
+pop_size = 1
+tourn_size = 3
 
 print('\n <--- Genetic search of features on Decision tree --->')
 model = DecisionTreeClassifier(max_depth=4, criterion='entropy', min_samples_leaf=10, splitter='best')
@@ -129,87 +131,26 @@ print('Shape of X_train_best_features', X_train_best_features.shape)
 predictions = evolved_tree.predict(X_test_best_features)
 print('\n- Accuracy score on test set (Decision tree):\t', score_meth(Y_test, predictions), '\n')
 Utils.show_confusion_matrix(Y_test, predictions, 'Decision tree with best features found via ga')
-result_data = dm.backtest_strategy_with_fees(test_data, predictions, fee, short_funding)
+#result_data = dm.backtest_strategy_with_fees(test_data, predictions, fee, short_funding)
 
-#fig, axes = plt.subplots(nrows=2, figsize=(10, 6), gridspec_kw={'height_ratios': [5, 1]})
-#result_data[['cum_return', 'cum_strategy', 'cum_strategy_no_fees']].plot(ax=axes[0])
-#result_data['prediction'].plot(ax=axes[1])
-#plt.tight_layout()
-#plt.show()
+bt_data = pd.DataFrame(index=test_data.index)
+bt_data['prediction'] = predictions
+price_data = dm.get_price_data().loc[date_split:]
+if price_col_name is None:
+    price_col_name = pair_dict[asset][0]
+bt_data[price_col_name] = price_data
 
-Utils.plot_oos_results(result_data, 'Out of sample results using best features found via ga, Dec tree')
-plot_tree_(model, best_features)
-
-
-################################################# 2 #############################################################
-##############################################################################################################
-print('\n <--- Hyper params optimisation via genetic algo on Decision tree --->')
-
-param_grid = {'criterion': Categorical(['gini', 'entropy']),
-              'max_depth': Integer(2, 4),
-              'min_samples_leaf': Integer(2, 100),
-              'max_features': Integer(2, len(best_features))}
-
-# The base classifier to tune
-clf = DecisionTreeClassifier()
-
-# The main class from sklearn-genetic-opt
-evolved_clf = GASearchCV(estimator=clf,
-                        cv=num_folds,
-                        scoring=scoring,
-                        param_grid=param_grid,
-                        population_size=pop_size,
-                        generations=n_gens,
-                        tournament_size=tourn_size,
-                        n_jobs=-1,
-                        keep_top_k=1,
-                        verbose=True)
-
-callback = ConsecutiveStopping(generations=consec_stop, metric='fitness')
-evolved_clf.fit(X_train_best_features, Y_train, callbacks=callback)
-
-# Best parameters found
-print(evolved_clf.best_params_)
-# Use the model fitted with the best parameters
-predictions = evolved_clf.predict(X_test_best_features)
-print('- Accuracy score on test set Hyper params optimisation via genetic algo on Decision tree:\t', score_meth(Y_test, predictions), '\n')
-Utils.show_confusion_matrix(Y_test, predictions, 'Hyper params optimisation via genetic algo on Decision tree')
-result_data = dm.backtest_strategy_with_fees(test_data, predictions, fee, short_funding)
-Utils.plot_oos_results(result_data, 'Out of sample results, Hyper params optimisation via genetic algo on Decision tree')
-
-if False:
-    ######################################################################
-    ##########   Grid Search: CART (decision tree)   #####################
-    #####################################################################
-    print('Grid search on Decision tree')
-
-    kfold = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
-
-    ## Results on test data set
-    # prepare model
-
-    max_depth = [2, 3, 4, 5]
-    min_samples_leaf = [11, 33, 66, 100]
-    criterion = ["gini", "entropy"]
-    splitter = ['best', 'random']
-    grid = dict(max_depth=max_depth, criterion=criterion, min_samples_leaf=min_samples_leaf, splitter=splitter)
-    grid_result_cart = Utils.grid_search_(X_train_best_features, Y_train, grid, scoring, kfold, DecisionTreeClassifier(), 'CART')
-
-    model_cart = DecisionTreeClassifier(criterion=grid_result_cart.best_params_['criterion'],
-                                   max_depth=grid_result_cart.best_params_['max_depth'],
-                                   min_samples_leaf=grid_result_cart.best_params_['min_samples_leaf'],
-                                    splitter = grid_result_cart.best_params_['splitter'])
-
-    model_cart.fit(X_train_best_features, Y_train)
-
-    ########## Check results on test data ##############
-
-    predictions = model_cart.predict(X_test_best_features)
-    print('\n- Accuracy score on test set (CART after grid search):\t', score_meth(Y_test, predictions), '\n')
-    Utils.show_confusion_matrix(Y_test, predictions, 'CART after grid search')
-    result_data = dm.get_result_data(test_data, predictions)
-    Utils.plot_oos_results(result_data, 'Out of sample results, CART after grid search')
-    plot_tree_(model_cart, best_features)
-
+cash_balance = 1000
+min_order_size = 0.0001
+col_name_dict = {'price_col': price_col_name, 'buy_sell_signal_col': 'prediction', 'net_wealth_col': 'net_wealth'}
+bt_ls = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size)
+bt_ls.bt_long_short_signal()
+print(bt_ls.data.head(20))
+bt_ls.plot_strategy_vs_asset()
 
 plt.show()
+
+#Utils.plot_oos_results(result_data, 'Out of sample results using best features found via ga, Dec tree')
+#plot_tree_(model, best_features)
+
+

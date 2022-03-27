@@ -58,6 +58,7 @@ class Utils:
         plt.title(ttl)
 
 
+
     @staticmethod
     def template_for_dec_tree_based_algo_GA(coin, s_date, lags_p_smas, lags_smas, date_split, model, num_folds,
                                             n_gens, pop_size, scoring, tourn_size, consec_stop, param_grid,

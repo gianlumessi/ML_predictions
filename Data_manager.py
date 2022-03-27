@@ -21,9 +21,16 @@ class Data_manager:
         if where == None:
             self.where = 'yahoo'
         self.ret_1d = 'ret_1d'
+        self.transf_dict = {'transf_1': 'percentile', 'transf_2': 'min_max'}
+        self.transf_features = {}
+        self.price_data = None
+
+    def get_price_data(self):
+        return self.price_data
 
     def download_price_data(self):
         if self.path is not None:
+            #get data from file
             if self.pair == 'BTC-USD':
                 p = self.path +'btc-usd-coingecko_2015.csv'
             elif self.pair == 'ETH-USD':
@@ -48,6 +55,7 @@ class Data_manager:
         print('Data starts from:', self.df.index[0])
 
         self.df = self.df.ffill()
+        self.price_data = self.df[self.price_col]
 
 
     def merge_search_with_price_data(self):
@@ -78,25 +86,27 @@ class Data_manager:
 
     def features_engineering_for_dec_tree(self, lags_p_smas, lags_smas, lags_rsi=None, lags_std=None):
         '''
-
-
         Note: not all cols are added to the list of features. This is because features such as past returns or past
         price are useless if not compared to something else (e.g. latest monthly return vs latest daily return).
         '''
 
         #TODO list:
         # 1. you should calculate the percentile of most of the features below.
-        # 2. You should consider that when doing the kfold you, use data that should not know - CORRECT IT
-        # 3. Given you are using smas and other quantities that depend on previous data, is this affecting the kfold validation?
+        # 2. Given you are using smas and other quantities that depend on previous data, is this affecting the kfold
+        # validation - the algo is using data it should not know. CORRECTION NEEDED
 
         ret_str = self.ret_1d
         ret_1d_lagged_str = 'feat_ret_1d'
+        ret_1w_lagged_str = 'feat_ret_1w'
         feature_cols = []
         self.df[ret_str] = np.log(self.df[self.price_col] / self.df[self.price_col].shift(1))
         self.df[ret_1d_lagged_str] = self.df[ret_str].shift(1)
-        self.df['feat_ret_week'] = np.log(self.df[self.price_col] / self.df[self.price_col].shift(7)).shift(1)
+        self.df[ret_1w_lagged_str] = np.log(self.df[self.price_col] / self.df[self.price_col].shift(7)).shift(1)
         feature_cols.append(ret_1d_lagged_str)
-        feature_cols.append('feat_ret_week')
+        feature_cols.append(ret_1w_lagged_str)
+
+        transf1_ls = [ret_1d_lagged_str, ret_1w_lagged_str]
+        #transf2_ls = []
 
         # 1-day lagged price
         self.df['price_lag_1'] = self.df[self.price_col].shift(1)
@@ -199,6 +209,11 @@ class Data_manager:
         self.feature_cols = feature_cols
 
 
+        transf_1 = self.transf_dict['transf_1']
+        #transf_2 = self.transf_dict['transf_2']
+        self.transf_features = {transf_1: transf1_ls}#, transf_2: transf2_ls} #1. Percentile, 2. MinMax
+
+
     def split_train_test(self, date_split):
         ## Split data into training and test set
         training_data = self.df.loc[:date_split]
@@ -217,7 +232,35 @@ class Data_manager:
         df_ = df.copy()
 
         df_['prediction'] = preds
+
         df_['strategy'] = df_['prediction'] * df_[self.ret_1d]
-        df_[['cum_return', 'cum_strategy']] = df_[[self.ret_1d, 'strategy']].cumsum().apply(np.exp)
+        df_['cum_return'] = df_[self.ret_1d].cumsum().apply(np.exp)
+        df_['cum_strategy'] = df_['strategy'].cumsum().apply(np.exp)
+
+        return df_
+
+
+    def backtest_strategy_with_fees(self, df, preds, fee=None, short_funding=None):
+        df_ = df.copy()
+
+        df_['prediction'] = preds
+
+        df_['shifted_prediction'] = df_['prediction'].shift(1)
+        df_['buy_sell_fees'] = np.abs((df_['prediction'] - df_['shifted_prediction']))
+
+        inv = 1
+        if df_['prediction'].iloc[0] != 1:
+            inv = 0
+        df_['buy_sell_fees'].iloc[0] = inv
+        df_['buy_sell_fees'] = np.where(df_['buy_sell_fees'] != 0, fee, 0)
+
+        conditions = [df_['prediction'] < 0, df_['prediction'] >= 0]
+        values = [short_funding, 0]
+        df_['short_fees'] = np.select(conditions, values, default=0)
+
+        df_['strategy'] = df_['prediction'] * df_[self.ret_1d]
+        df_['cum_return'] = df_[self.ret_1d].cumsum().apply(np.exp)
+        df_['cum_strategy_no_fees'] = df_['strategy'].cumsum().apply(np.exp)
+        df_['cum_strategy'] = (df_['strategy'] - df_['buy_sell_fees'] - df_['short_fees']).cumsum().apply(np.exp)
 
         return df_

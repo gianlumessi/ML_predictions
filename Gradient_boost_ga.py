@@ -21,8 +21,6 @@ plt.style.use('seaborn')
 mpl.rcParams['savefig.dpi'] = 300
 mpl.rcParams['font.family'] = 'serif'
 
-from sklearn.model_selection import KFold
-from sklearn.metrics import accuracy_score
 from sklearn import tree
 from sklearn_genetic import GASearchCV, GAFeatureSelectionCV
 from sklearn_genetic.callbacks import ConsecutiveStopping
@@ -37,16 +35,25 @@ def plot_tree_(model, cols):
 
 
 ########## inputs ###############
-coin = 'BTC-USD'
+pair_dict = {'BTC': ['BTC-USD', 'bitcoin'], 'ETH': ['ETH-USD', 'Ethereum'], 'XRP': ['XRP-USD', 'xrp']}
+asset = 'XRP'
+
+coin = pair_dict[asset][0]
+search_term = pair_dict[asset][1] #values allowed so far: 'bitcoin', 'Ethereum', 'xrp'
+
 s_date = '2015-01-01'
 date_split = '2021-01-01'
-search_term = 'bitcoin'
+
 
 # test options for classification
 num_folds = 6
 seed = 7
-scoring = 'accuracy'
-kfold = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
+
+scoring = 'average_precision' #'accuracy'
+if scoring == 'average_precision':
+  from sklearn.metrics import average_precision_score as score_meth
+elif scoring == 'accuracy':
+  from sklearn.metrics import accuracy_score as score_meth
 
 # features
 lags_p_smas = [7, 14, 28, 60]
@@ -109,6 +116,13 @@ X_train_best_features = X_train.loc[:, best_features]
 print('\nShape of X_test_best_features', X_test_best_features.shape)
 print('Shape of X_train_best_features', X_train_best_features.shape)
 
+# Predict only with the subset of selected features
+predictions = evolved_gb_.predict(X_test_best_features)
+print('- Accuracy score on test set (RF after GA feature selection):\t', score_meth(Y_test, predictions), '\n')
+Utils.show_confusion_matrix(Y_test, predictions, 'RF after GA feature selection')
+result_data = dm.get_result_data(test_data, predictions)
+Utils.plot_oos_results(result_data, 'Out of sample results, RF after GA feature selection')
+
 print('Genetic search on Gradient booster')
 
 param_grid = {'learning_rate': Continuous(0.01, 0.1, distribution='uniform'),
@@ -143,7 +157,7 @@ print(evolved_gb.best_params_)
 ########## Check results on test data ##############
 
 predictions = evolved_gb.predict(X_test_best_features)
-print('\n- Accuracy score on test set GB:\t', accuracy_score(Y_test, predictions), '\n')
+print('\n- Accuracy score on test set GB:\t', score_meth(Y_test, predictions), '\n')
 Utils.show_confusion_matrix(Y_test, predictions, 'GB after grid search')
 result_data = dm.get_result_data(test_data, predictions)
 Utils.plot_oos_results(result_data, 'Out of sample results, GB after grid search')
