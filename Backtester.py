@@ -1,7 +1,7 @@
 import numpy as np
 from pylab import mpl, plt
 from decimal import Decimal, localcontext, ROUND_DOWN
-
+import seaborn as sns
 plt.style.use('seaborn')
 mpl.rcParams['font.family'] = 'serif'
 
@@ -37,7 +37,8 @@ class Backtester(object):
     #   - do not use entire initial_cash_balance so that you can cover when short positions go bad
 
     def __init__(self, cash_balance, data, col_names_dict, min_order_size=0.0001, max_vol_precision_decimals=4,
-                 ftc=0.0, ptc=0.002, max_vol_precision_decimals_official=8, start_date=None, end_date=None, verbose=True):
+                 ftc=0.0, ptc=0.002, sfc=0.005, max_vol_precision_decimals_official=8, start_date=None, end_date=None,
+                 verbose=True):
 
         # see price and volume precision
         #https://support.kraken.com/hc/en-us/articles/4521313131540
@@ -48,6 +49,7 @@ class Backtester(object):
         self.current_cash_balance = cash_balance #old name: amount
         self.ftc = ftc #fixed transaction costs per trade
         self.ptc = ptc #proportional transaction costs per trade
+        self.sfc = sfc #proportional costs of the short position
         self.units_of_asset_held = 0 #old name: units
         #self.position = 'neutral' #+1 if long, -1 if short (useless as you have units_of_asset_held)
         self.n_of_trades_executed = 0
@@ -93,12 +95,12 @@ class Backtester(object):
         price = self.data[self.price_col].iloc[bar]
         return date, price
 
-    def print_current_cash_balance_and_asset_units(self, bar):
-        ''' Print out current cash balance info.'''
+#    def print_current_cash_balance_and_asset_units(self, bar):
+#        ''' Print out current cash balance info.'''
 
-        date, price = self.get_date_price(bar)
-        print(str(date), '| Cash balance = ', str(np.round(self.current_cash_balance, 2)),
-              '| Units of asset held = ', self.units_of_asset_held)
+#        date, price = self.get_date_price(bar)
+#        print(str(date), '| Cash balance = ', str(np.round(self.current_cash_balance, 2)),
+#              '| Units of asset held = ', self.units_of_asset_held)
         #print(f'{date} | current balance {self.current_cash_balance:.2f}')
 
 
@@ -108,7 +110,10 @@ class Backtester(object):
         date, price = self.get_date_price(bar)
         net_wealth = self.units_of_asset_held * price + self.current_cash_balance
         self.data[self.net_wealth_col].iloc[bar] = net_wealth
-        print(f'{date} | Net wealth {net_wealth:.2f}')
+        if self.verbose:
+            print(str(date), '| Cash balance = ', str(np.round(self.current_cash_balance, 2)),
+                  '| Units of asset held = ', self.units_of_asset_held)
+            print(f'{date} | Net wealth {net_wealth:.2f}')
 
     def place_buy_market_order(self, bar, units=None, cash_amount=None):
         ''' Place a buy order.    '''
@@ -188,12 +193,47 @@ class Backtester(object):
         if self.verbose:
             print(f'{date} | inventory {self.units_of_asset_held} units at {price:.2f}')
             print('=' * 55)
+
+
+    def get_strategy_stats(self):
+        digits = 4
+        plt.figure()
+
+        v1 = self.data[self.price_col].pct_change()
+        v2 = self.data[self.net_wealth_col].pct_change()
+
+        sig_p = v1.std()
+        sig_s = v2.std()
+
+        avg_ret_p = v1.mean()
+        avg_ret_s = v2.mean()
+
+        sh_rat_p = avg_ret_p / sig_p
+        sh_rat_s = avg_ret_s / sig_s
+
+        print('--- Performances ---')
+        print('ASSET stats | Avg ret = ' + str(np.round(avg_ret_p, digits)) +
+              ' | Std of ret = ' + str(np.round(sig_p, digits)) + ' | Sharpe ratio = ' + str(np.round(sh_rat_p, digits)))
+        print('STRATEGY stats | Avg ret = ' + str(np.round(avg_ret_s, digits)) +
+              ' | Std = ' + str(np.round(sig_s, digits)) + ' | Sharpe ratio = ' + str(np.round(sh_rat_s, digits)))
+
         print('Final balance [$] {:.2f}'.format(self.current_cash_balance))
-        perf = ((self.current_cash_balance - self.initial_cash_balance) /
+        perf_s = ((self.current_cash_balance - self.initial_cash_balance) /
                 self.initial_cash_balance * 100)
-        print('Net Performance [%] {:.2f}'.format(perf))
-        print('Trades Executed [#] {:.2f}'.format(self.n_of_trades_executed))
+
+        perf_a = ((self.data[self.price_col].iloc[-1] - self.data[self.price_col].iloc[0]) /
+                self.data[self.price_col].iloc[-1] * 100)
+
+        print('Strategy Net Performance [%] {:.2f}'.format(perf_s))
+        print('Asset Net Performance [%] {:.2f}'.format(perf_a))
+
+        print('Trades Executed {:.2f}'.format(self.n_of_trades_executed))
         print('=' * 55)
+
+        sns.set(style="darkgrid")
+        sns.histplot(data=v1, color="skyblue", label="Asset returns. sigma = " + str(np.round(sig_p, digits)))#, x="sepal_length", color="skyblue", label="Sepal Length", kde=True)
+        sns.histplot(data=v2, color="red", label="Strategy returns. sigma = " + str(np.round(sig_s, digits)))#, x="sepal_width", color="red", label="Sepal Width", kde=True)
+        plt.legend()
 
 
 class BacktestLongShort(Backtester):
@@ -230,24 +270,53 @@ class BacktestLongShort(Backtester):
         self.data[self.net_wealth_col] = np.nan
 
         for bar in range(self.data.shape[0]):
+
+            asset_units = self.units_of_asset_held
+
+            #check if short positions are open from previous time step and charge fees
+            if asset_units < 0:
+                date, price = self.get_date_price(bar)
+                self.current_cash_balance -= np.abs(asset_units) * price * self.sfc
+
             prediction = self.data[self.prediction_col].iloc[bar]
-            if prediction == 1:
+            if prediction == 1 and asset_units <= 0: #if 'neutral' or 'short':
                 #in this case you want to go long only if current position is neutral or short
-                if self.units_of_asset_held <= 0: #self.position in ['neutral', 'short']:
                     self.go_long(bar, cash_amount='all')
-                    #self.units_of_asset_held <= 0: #self.position = 'long'
-            elif prediction == -1:
-                if self.units_of_asset_held >= 0: #self.position in ['neutral', 'long']:
+            elif prediction == -1 and asset_units >= 0: #if 'neutral' or 'long':
                     self.go_short(bar, cash_amount='all')
-                    #self.position = 'short'
             elif prediction == 0:
-                print('!!! Error, unclear indication!!!!')
+                raise ValueError("Decimal places must be an integer.")
                 break
 
-            self.print_current_cash_balance_and_asset_units(bar)
+            #self.print_current_cash_balance_and_asset_units(bar)
             self.calc_net_wealth(bar)
 
         self.close_out(bar)
+        self.get_strategy_stats()
+
+
+    def bt_long_only_signal(self):
+
+        self.data[self.net_wealth_col] = np.nan
+        for bar in range(self.data.shape[0]):
+
+            asset_units = self.units_of_asset_held
+
+            prediction = self.data[self.prediction_col].iloc[bar]
+            if prediction == 1 and asset_units <= 0: #if 'neutral' or 'short':
+                self.go_long(bar, cash_amount='all')
+            elif prediction == -1:
+                if asset_units > 0:  # self.position == 'long':
+                    self.place_sell_market_order(bar, units=asset_units)
+            elif prediction == 0:
+                raise ValueError("Decimal places must be an integer.")
+                break
+
+            #self.print_current_cash_balance_and_asset_units(bar)
+            self.calc_net_wealth(bar)
+
+        self.close_out(bar)
+        self.get_strategy_stats()
 
 #if __name__ == '__main__':
 #    bb = Backtester('AAPL.O', '2010-1-1', '2019-12-31', 10000)

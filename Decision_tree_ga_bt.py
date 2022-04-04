@@ -143,10 +143,13 @@ bt_data[price_col_name] = price_data
 cash_balance = 1000
 min_order_size = 0.0001
 col_name_dict = {'price_col': price_col_name, 'buy_sell_signal_col': 'prediction', 'net_wealth_col': 'net_wealth'}
-bt_ls = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size)
+bt_ls = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size, ftc=0.0, ptc=0.00, verbose=False)
 bt_ls.bt_long_short_signal()
-print(bt_ls.data.head(20))
 bt_ls.plot_strategy_vs_asset()
+
+
+result_data = dm.get_result_data(test_data, predictions)
+Utils.plot_oos_results(result_data, '- Out of sample results, Hyper params optimisation via genetic algo ' + coin)
 
 plt.show()
 
