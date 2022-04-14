@@ -2,20 +2,18 @@ import pandas as pd
 import numpy as np
 pd.set_option('display.max_columns', None)
 
-from decimal import Decimal, localcontext, ROUND_DOWN
 
-def truncate(number, places):
-    if not isinstance(places, int):
-        raise ValueError("Decimal places must be an integer.")
-    if places < 1:
-        raise ValueError("Decimal places must be at least 1.")
-    # If you want to truncate to 0 decimal places, just do int(number).
+signal = [1,1,1,-1,-1,1,-1,-1,-1]
 
-    with localcontext() as context:
-        context.rounding = ROUND_DOWN
-        exponent = Decimal(str(10 ** - places))
-        return Decimal(str(number)).quantize(exponent).to_eng_string()
+df = pd.DataFrame(data=signal, columns=['signal'])
+df['signal_shifted'] = df['signal'].shift(1)
+df['diff'] = df['signal'] - df['signal_shifted']
+sig_arr = np.where(df['diff'] != 0, -1, 1)
 
-value = 1.232847632487
-trunc_value = float(truncate(value, 4))
-print(value, trunc_value)
+if df['signal'].iloc[0] == 1:
+    sig_arr[0] = 1
+else:
+    sig_arr[0] = -1
+
+print(df)
+print(sig_arr)

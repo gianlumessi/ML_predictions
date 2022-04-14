@@ -37,7 +37,8 @@ class Backtester(object):
     #   - do not use entire initial_cash_balance so that you can cover when short positions go bad
 
     def __init__(self, cash_balance, data, col_names_dict, min_order_size=0.0001, max_vol_precision_decimals=4,
-                 ftc=0.0, ptc=0.002, sfc=0.005, max_vol_precision_decimals_official=8, start_date=None, end_date=None,
+                 ftc=0.0, ptc=0.002, sfc=0.005, max_vol_precision_decimals_official=8, rebalance_threshold=None,
+                 start_date=None, end_date=None,
                  verbose=True):
 
         # see price and volume precision
@@ -55,8 +56,12 @@ class Backtester(object):
         self.n_of_trades_executed = 0
         self.verbose = verbose
         self.data = data
+        self.rebalance_threshold = rebalance_threshold #Threshold to rebalance portfolio when position is short
+        if rebalance_threshold is None:
+            self.rebalance_threshold = cash_balance * 0.05
 
-        ## variable names
+
+        ### variable names ###
         self.min_order_size = min_order_size
         self.max_vol_precision_decimals = max_vol_precision_decimals #Expresses the number of decimals.
         # You can't give a volume to buy / sell with higher precision than this
@@ -110,6 +115,7 @@ class Backtester(object):
         date, price = self.get_date_price(bar)
         net_wealth = self.units_of_asset_held * price + self.current_cash_balance
         self.data[self.net_wealth_col].iloc[bar] = net_wealth
+
         if self.verbose:
             print(str(date), '| Cash balance = ', str(np.round(self.current_cash_balance, 2)),
                   '| Units of asset held = ', self.units_of_asset_held)
@@ -120,21 +126,16 @@ class Backtester(object):
 
         date, price = self.get_date_price(bar)
         if units is None:
-            units = truncate(cash_amount / price, self.max_vol_precision_decimals)
+            # TODO: need to take into account transaction costs when calculating units
+            units = cash_amount / price
+        self.current_cash_balance -= (units * price) * (1 + self.ptc) + self.ftc
+        self.units_of_asset_held += units
+        self.n_of_trades_executed += 1
+        if self.verbose:
+            print(f'{date} | buying {units} units at {price:.2f}')
 
-        cash_balance_after_trade = self.current_cash_balance - (units*price * (1 + self.ptc) + self.ftc)
-
-        while cash_balance_after_trade <= 0:
-            units = truncate(units - self.min_order_size, self.max_vol_precision_decimals)
-            cash_balance_after_trade = self.current_cash_balance - (units*price * (1 + self.ptc) + self.ftc)
-
-        if units >= self.min_order_size:
-            #TODO: careful, there is the risk you won't be able to close long positions
-            self.current_cash_balance = cash_balance_after_trade
-            self.units_of_asset_held += units
-            self.n_of_trades_executed += 1
-            if self.verbose:
-                print(f'{date} | buying {units} units at {price:.2f}')
+#        else:
+#            print('Insufficient cash to purchase the asset. Cash balance = ', self.current_cash_balance)
 
 
     def OLD__place_buy_market_order(self, bar, units=None, cash_amount=None):
@@ -157,14 +158,11 @@ class Backtester(object):
 
         date, price = self.get_date_price(bar)
         if units is None:
-            units = truncate(cash_amount / price, self.max_vol_precision_decimals)
-
-        cash_balance_after_trade = self.current_cash_balance + (units*price * (1 - self.ptc) - self.ftc)
-
-        if np.abs(units) >= self.min_order_size:
-            self.current_cash_balance = cash_balance_after_trade
-            self.units_of_asset_held -= units
-            self.n_of_trades_executed += 1
+            units = cash_amount / price
+        self.current_cash_balance += (units * price) * (1 - self.ptc) - self.ftc
+        self.units_of_asset_held -= units
+        self.n_of_trades_executed += 1
+        if self.verbose:
             if self.verbose:
                 print(f'{date} | selling {units} units at {price:.2f}')
 
@@ -267,31 +265,65 @@ class BacktestLongShort(Backtester):
 
     def bt_long_short_signal(self):
 
+        debug = True
+
         self.data[self.net_wealth_col] = np.nan
+
+        if debug:
+            self.data['price_change'] = np.nan
+            self.data['units'] = np.nan
+            self.data['cash_balance'] = np.nan
 
         for bar in range(self.data.shape[0]):
 
             asset_units = self.units_of_asset_held
 
+            date, price = self.get_date_price(bar)
+            price_change = 0
+
+            if bar > 0:
+                prev_date, prev_price = self.get_date_price(bar-1)
+                price_change = price - prev_price
+
             #check if short positions are open from previous time step and charge fees
             if asset_units < 0:
-                date, price = self.get_date_price(bar)
                 self.current_cash_balance -= np.abs(asset_units) * price * self.sfc
+
+            pnl = price_change * asset_units
 
             prediction = self.data[self.prediction_col].iloc[bar]
             if prediction == 1 and asset_units <= 0: #if 'neutral' or 'short':
                 #in this case you want to go long only if current position is neutral or short
                     self.go_long(bar, cash_amount='all')
-            elif prediction == -1 and asset_units >= 0: #if 'neutral' or 'long':
+            elif prediction == -1:
+                if asset_units >= 0: #if 'neutral' or 'long':
                     self.go_short(bar, cash_amount='all')
+                elif price_change > self.rebalance_threshold: #Rebalance position
+                    # In this case you were short the asset and the asset increased in value,
+                    # so you have to buy asset to close part of the short position
+                    self.place_buy_market_order(bar, cash_amount=-2*pnl)
+                elif price_change < -self.rebalance_threshold:
+                    # Sell asset to increase the short position
+                    self.place_sell_market_order(bar, cash_amount=2*pnl)
             elif prediction == 0:
-                raise ValueError("Decimal places must be an integer.")
+                raise ValueError("!!!ERROR: Prediction value = 0!!!")
                 break
 
             #self.print_current_cash_balance_and_asset_units(bar)
             self.calc_net_wealth(bar)
 
+            if debug:
+                self.data['price_change'].iloc[bar] = price_change
+                self.data['units'].iloc[bar] = self.units_of_asset_held
+                self.data['cash_balance'].iloc[bar] = self.current_cash_balance
+
+        if debug:
+            _df = self.data.copy()
+            _df.reset_index(drop=True, inplace=True)
+            _df.to_excel('C:/Users/Gianluca/Desktop/BT_debug.xlsx')
+
         self.close_out(bar)
+
         self.get_strategy_stats()
 
 
@@ -309,7 +341,7 @@ class BacktestLongShort(Backtester):
                 if asset_units > 0:  # self.position == 'long':
                     self.place_sell_market_order(bar, units=asset_units)
             elif prediction == 0:
-                raise ValueError("Decimal places must be an integer.")
+                raise ValueError("!!!ERROR: Prediction value = 0!!!")
                 break
 
             #self.print_current_cash_balance_and_asset_units(bar)

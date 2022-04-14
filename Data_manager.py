@@ -233,9 +233,11 @@ class Data_manager:
 
         df_['prediction'] = preds
 
-        df_['strategy'] = df_['prediction'] * df_[self.ret_1d]
-        df_['cum_return'] = df_[self.ret_1d].cumsum().apply(np.exp)
-        df_['cum_strategy'] = df_['strategy'].cumsum().apply(np.exp)
+        # np.exp(df_[self.ret_1d]) = x_i / x_{i-1} = r_i + 1
+        df_['ret_'] = np.exp(df_[self.ret_1d]) - 1
+        df_['strategy'] = df_['ret_'] * df_['prediction'] + 1
+        df_['cum_return'] = np.cumprod(df_['ret_'] + 1) #df_[self.ret_1d].cumsum().apply(np.exp)
+        df_['cum_strategy'] = df_['strategy'].cumprod()
 
         return df_
 

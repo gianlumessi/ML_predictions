@@ -133,6 +133,10 @@ print('\n- Accuracy score on test set (Decision tree):\t', score_meth(Y_test, pr
 Utils.show_confusion_matrix(Y_test, predictions, 'Decision tree with best features found via ga')
 #result_data = dm.backtest_strategy_with_fees(test_data, predictions, fee, short_funding)
 
+debug = False
+if debug:
+    predictions=-1
+
 bt_data = pd.DataFrame(index=test_data.index)
 bt_data['prediction'] = predictions
 price_data = dm.get_price_data().loc[date_split:]
@@ -140,10 +144,13 @@ if price_col_name is None:
     price_col_name = pair_dict[asset][0]
 bt_data[price_col_name] = price_data
 
+
 cash_balance = 1000
 min_order_size = 0.0001
-col_name_dict = {'price_col': price_col_name, 'buy_sell_signal_col': 'prediction', 'net_wealth_col': 'net_wealth'}
-bt_ls = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size, ftc=0.0, ptc=0.00, verbose=False)
+col_name_dict = {'price_col': price_col_name, 'buy_sell_signal_col': 'prediction', 'net_wealth_col': 'net_wealth',
+                 'pnl_col': 'pnl'}
+bt_ls = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size, ftc=0.0, ptc=0.00, sfc=0.00,
+                          rebalance_threshold=0, verbose=False)
 bt_ls.bt_long_short_signal()
 bt_ls.plot_strategy_vs_asset()
 
