@@ -61,9 +61,12 @@ lags_rsi = [7, 14, 28, 60, 90]
 #################
 #######################
 
-dm = Data_manager(coin, s_date, search_term=search_term, path='local_file') #path='local_file' looks for files in local folder
+#Note on inputs of Data_manager:
+#path='local_file' is in case you want to get price and search data from files in local folder
+# search_term is the google trend search term. Currently you only have it stored in local file
+
+dm = Data_manager(coin, s_date, where='yahoo')# search_term=search_term, path='local_file')
 dm.download_price_data()
-dm.merge_search_with_price_data()
 dm.features_engineering_for_dec_tree(lags_p_smas, lags_smas, lags_rsi)
 feature_cols = dm.feature_cols
 
@@ -135,25 +138,31 @@ Utils.show_confusion_matrix(Y_test, predictions, 'Decision tree with best featur
 
 debug = False
 if debug:
-    predictions=-1
+    #predictions=-1
+    predictions = pd.read_excel('C:/Users/Gianluca/Desktop/prediction_debug.xlsx')['prediction'].to_numpy()
 
 bt_data = pd.DataFrame(index=test_data.index)
 bt_data['prediction'] = predictions
-price_data = dm.get_price_data().loc[date_split:]
+#Check your notes to understand why you need the shift(1) below
+price_data_lagged = dm.get_price_data().shift(1).loc[date_split:]
 if price_col_name is None:
     price_col_name = pair_dict[asset][0]
-bt_data[price_col_name] = price_data
+bt_data[price_col_name] = price_data_lagged
 
 
 cash_balance = 1000
 min_order_size = 0.0001
-col_name_dict = {'price_col': price_col_name, 'buy_sell_signal_col': 'prediction', 'net_wealth_col': 'net_wealth',
+col_name_dict = {'price_col': price_col_name, 'buy_sell_signal_col': 'prediction', 'ptf_value_col': 'ptf_value',
                  'pnl_col': 'pnl'}
-bt_ls = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size, ftc=0.0, ptc=0.00, sfc=0.00,
+bt_ls = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size, ftc=0.0, ptc=0.0001, spi_d=0.0001,
                           rebalance_threshold=0, verbose=False)
 bt_ls.bt_long_short_signal()
 bt_ls.plot_strategy_vs_asset()
 
+bt_l = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size, ftc=0.0001, ptc=0.0001, verbose=False)
+
+bt_l.bt_long_only_signal()
+bt_l.plot_strategy_vs_asset()
 
 result_data = dm.get_result_data(test_data, predictions)
 Utils.plot_oos_results(result_data, '- Out of sample results, Hyper params optimisation via genetic algo ' + coin)

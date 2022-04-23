@@ -17,6 +17,8 @@ class Data_manager:
             self.path = os.path.dirname(os.path.realpath(__file__)).replace(os.sep, '/') + '/Data/'# 'C:/Users/Gianluca/Desktop/Coding projects/Crypto_prediction_with_ML/'
         elif path is not None:
             self.path = path
+        else:
+            self.path = None
         self.where = where
         if where == None:
             self.where = 'yahoo'
@@ -57,32 +59,31 @@ class Data_manager:
         self.df = self.df.ffill()
         self.price_data = self.df[self.price_col]
 
+        if self.search_term is not None:
+            #get google trend data for search_term
+            if self.search_term == 'bitcoin':
+                filen = 'bicoin_searches_from_2015.xlsx'
+            elif self.search_term == 'Ethereum':
+                filen = 'ethereum_eth__searches_from_Feb_2016.xlsx'
+            elif self.search_term == 'xrp':
+                filen = 'ripple_xrp_searches_from_Feb_2017.xlsx'
+            else:
+                'ERROR!! No other search file stored for currencies other than bitcoin, eth and xrp'
 
-    def merge_search_with_price_data(self):
-        #TODO: if search term is given, this should be done automatically
+            print('Reading search data from ' + filen)
+            print('Merging price data with search data ...')
 
-        if self.search_term == 'bitcoin':
-            filen = 'bicoin_searches_from_2015.xlsx'
-        elif self.search_term == 'Ethereum':
-            filen = 'ethereum_eth__searches_from_Feb_2016.xlsx'
-        elif self.search_term == 'xrp':
-            filen = 'ripple_xrp_searches_from_Feb_2017.xlsx'
-        else:
-            'ERROR!! No other search file stored for currencies other than bitcoin, eth and xrp'
+            df_search = pd.read_excel(self.path + filen)
+            idx = 'date'
+            df_search[idx] = pd.to_datetime(df_search[idx])
+            df_search.set_index(idx, inplace=True)
+            df_search.index = df_search.index.tz_localize('UTC')
+            print('Time zone of search set to UTC')
 
-        print('Reading search data from ' + filen)
-        print('Merging price data with search data ...')
+            # TODO: need to change line below for cases where more than one search_term is used
+            self.df = self.df.merge(df_search[self.search_term], left_index=True, right_index=True)
+            self.df = self.df.ffill().dropna()
 
-        df_search = pd.read_excel(self.path + filen)
-        idx = 'date'
-        df_search[idx] = pd.to_datetime(df_search[idx])
-        df_search.set_index(idx, inplace=True)
-        df_search.index = df_search.index.tz_localize('UTC')
-        print('Time zone of search set to UTC')
-
-        #TODO: need to change line below for cases where more than one search_term is used
-        self.df = self.df.merge(df_search[self.search_term], left_index=True, right_index=True)
-        self.df = self.df.ffill().dropna()
 
     def features_engineering_for_dec_tree(self, lags_p_smas, lags_smas, lags_rsi=None, lags_std=None):
         '''

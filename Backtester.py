@@ -37,7 +37,7 @@ class Backtester(object):
     #   - do not use entire initial_cash_balance so that you can cover when short positions go bad
 
     def __init__(self, cash_balance, data, col_names_dict, min_order_size=0.0001, max_vol_precision_decimals=4,
-                 ftc=0.0, ptc=0.002, sfc=0.005, max_vol_precision_decimals_official=8, rebalance_threshold=None,
+                 ftc=0.0, ptc=0.002, spi_d=0.0001, max_vol_precision_decimals_official=8, rebalance_threshold=None,
                  start_date=None, end_date=None,
                  verbose=True):
 
@@ -50,9 +50,8 @@ class Backtester(object):
         self.current_cash_balance = cash_balance #old name: amount
         self.ftc = ftc #fixed transaction costs per trade
         self.ptc = ptc #proportional transaction costs per trade
-        self.sfc = sfc #proportional costs of the short position
+        self.spi_d = spi_d #daily borrowing interest for short position
         self.units_of_asset_held = 0 #old name: units
-        #self.position = 'neutral' #+1 if long, -1 if short (useless as you have units_of_asset_held)
         self.n_of_trades_executed = 0
         self.verbose = verbose
         self.data = data
@@ -68,7 +67,7 @@ class Backtester(object):
         self.max_vol_precision_decimals_official = max_vol_precision_decimals_official #official value on exchange website
         self.price_col = col_names_dict['price_col']
         self.prediction_col = col_names_dict['buy_sell_signal_col']
-        self.net_wealth_col = col_names_dict['net_wealth_col']
+        self.ptf_value_col = col_names_dict['ptf_value_col']
 
         if max_vol_precision_decimals > max_vol_precision_decimals_official:
             raise ValueError('max_vol_precision > max_vol_precision_official')
@@ -84,8 +83,8 @@ class Backtester(object):
         fig, axes = plt.subplots(nrows=2, figsize=(10, 6), gridspec_kw={'height_ratios': [5, 1]})
 
         self.data[self.price_col] = self.data[self.price_col] / self.data[self.price_col].iloc[0]
-        self.data[self.net_wealth_col] = self.data[self.net_wealth_col] / self.data[self.net_wealth_col].iloc[0]
-        self.data[[self.price_col, self.net_wealth_col]].plot(ax=axes[0])
+        self.data[self.ptf_value_col] = self.data[self.ptf_value_col] / self.data[self.ptf_value_col].iloc[0]
+        self.data[[self.price_col, self.ptf_value_col]].plot(ax=axes[0])
 
         self.data[self.prediction_col].plot(ax=axes[1])
 
@@ -109,17 +108,17 @@ class Backtester(object):
         #print(f'{date} | current balance {self.current_cash_balance:.2f}')
 
 
-    def calc_net_wealth(self, bar):
+    def calc_ptf_value(self, bar):
         ''' Print out current cash balance info.    '''
 
         date, price = self.get_date_price(bar)
-        net_wealth = self.units_of_asset_held * price + self.current_cash_balance
-        self.data[self.net_wealth_col].iloc[bar] = net_wealth
+        ptf_value = self.units_of_asset_held * price + self.current_cash_balance
+        self.data[self.ptf_value_col].iloc[bar] = ptf_value
 
         if self.verbose:
             print(str(date), '| Cash balance = ', str(np.round(self.current_cash_balance, 2)),
                   '| Units of asset held = ', self.units_of_asset_held)
-            print(f'{date} | Net wealth {net_wealth:.2f}')
+            print(f'{date} | Ptf value {ptf_value:.2f}')
 
     def place_buy_market_order(self, bar, units=None, cash_amount=None):
         ''' Place a buy order.    '''
@@ -193,12 +192,12 @@ class Backtester(object):
             print('=' * 55)
 
 
-    def get_strategy_stats(self):
+    def get_strategy_stats(self, strategy_str):
         digits = 4
         plt.figure()
 
         v1 = self.data[self.price_col].pct_change()
-        v2 = self.data[self.net_wealth_col].pct_change()
+        v2 = self.data[self.ptf_value_col].pct_change()
 
         sig_p = v1.std()
         sig_s = v2.std()
@@ -209,7 +208,7 @@ class Backtester(object):
         sh_rat_p = avg_ret_p / sig_p
         sh_rat_s = avg_ret_s / sig_s
 
-        print('--- Performances ---')
+        print('--- Performances ' + strategy_str + ' ---')
         print('ASSET stats | Avg ret = ' + str(np.round(avg_ret_p, digits)) +
               ' | Std of ret = ' + str(np.round(sig_p, digits)) + ' | Sharpe ratio = ' + str(np.round(sh_rat_p, digits)))
         print('STRATEGY stats | Avg ret = ' + str(np.round(avg_ret_s, digits)) +
@@ -263,13 +262,11 @@ class BacktestLongShort(Backtester):
             self.place_sell_market_order(bar, cash_amount=cash_amount)
 
 
-    def bt_long_short_signal(self):
+    def bt_long_short_signal(self, is_debug=False):
 
-        debug = True
+        self.data[self.ptf_value_col] = np.nan
 
-        self.data[self.net_wealth_col] = np.nan
-
-        if debug:
+        if is_debug:
             self.data['price_change'] = np.nan
             self.data['units'] = np.nan
             self.data['cash_balance'] = np.nan
@@ -287,7 +284,7 @@ class BacktestLongShort(Backtester):
 
             #check if short positions are open from previous time step and charge fees
             if asset_units < 0:
-                self.current_cash_balance -= np.abs(asset_units) * price * self.sfc
+                self.current_cash_balance -= np.abs(asset_units) * price * self.spi_d
 
             pnl = price_change * asset_units
 
@@ -310,26 +307,26 @@ class BacktestLongShort(Backtester):
                 break
 
             #self.print_current_cash_balance_and_asset_units(bar)
-            self.calc_net_wealth(bar)
+            self.calc_ptf_value(bar)
 
-            if debug:
+            if is_debug:
                 self.data['price_change'].iloc[bar] = price_change
                 self.data['units'].iloc[bar] = self.units_of_asset_held
                 self.data['cash_balance'].iloc[bar] = self.current_cash_balance
 
-        if debug:
+        if is_debug:
             _df = self.data.copy()
             _df.reset_index(drop=True, inplace=True)
             _df.to_excel('C:/Users/Gianluca/Desktop/BT_debug.xlsx')
 
         self.close_out(bar)
 
-        self.get_strategy_stats()
+        self.get_strategy_stats('long/short')
 
 
     def bt_long_only_signal(self):
 
-        self.data[self.net_wealth_col] = np.nan
+        self.data[self.ptf_value_col] = np.nan
         for bar in range(self.data.shape[0]):
 
             asset_units = self.units_of_asset_held
@@ -345,10 +342,10 @@ class BacktestLongShort(Backtester):
                 break
 
             #self.print_current_cash_balance_and_asset_units(bar)
-            self.calc_net_wealth(bar)
+            self.calc_ptf_value(bar)
 
         self.close_out(bar)
-        self.get_strategy_stats()
+        self.get_strategy_stats('long only')
 
 #if __name__ == '__main__':
 #    bb = Backtester('AAPL.O', '2010-1-1', '2019-12-31', 10000)
