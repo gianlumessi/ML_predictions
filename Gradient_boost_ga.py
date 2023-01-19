@@ -69,12 +69,12 @@ dm = Data_manager(coin, s_date, search_term=search_term, path='local_file')
 dm.download_price_data()
 dm.merge_search_with_price_data()
 dm.features_engineering_for_dec_tree(lags_p_smas, lags_smas, lags_rsi, lags_std)
-feature_cols = dm.feature_cols
+feature_cols = dm.feature_names
 
 print('Feature cols:', feature_cols)
 
 ## Split data into training and test set
-data = dm.df
+data = dm.data
 training_data = data.loc[:date_split]
 test_data = data.loc[date_split:]
 
@@ -120,7 +120,7 @@ print('Shape of X_train_best_features', X_train_best_features.shape)
 predictions = evolved_gb_.predict(X_test_best_features)
 print('- Accuracy score on test set (RF after GA feature selection):\t', score_meth(Y_test, predictions), '\n')
 Utils.show_confusion_matrix(Y_test, predictions, 'RF after GA feature selection')
-result_data = dm.get_result_data(test_data, predictions)
+result_data = dm.run_simple_backtest(test_data, predictions)
 Utils.plot_oos_results(result_data, 'Out of sample results, RF after GA feature selection')
 
 print('Genetic search on Gradient booster')
@@ -157,9 +157,9 @@ print(evolved_gb.best_params_)
 ########## Check results on test data ##############
 
 predictions = evolved_gb.predict(X_test_best_features)
-print('\n- Accuracy score on test set GB:\t', score_meth(Y_test, predictions), '\n')
+print('\n- Score on test set GB:\t', score_meth(Y_test, predictions), '\n')
 Utils.show_confusion_matrix(Y_test, predictions, 'GB after grid search')
-result_data = dm.get_result_data(test_data, predictions)
+result_data = dm.run_simple_backtest(test_data, predictions)
 Utils.plot_oos_results(result_data, 'Out of sample results, GB after grid search')
 
 plt.show()

@@ -1,19 +1,30 @@
 import pandas as pd
+pd.options.mode.chained_assignment = None  # default='warn: to suppress SettingWithCopyWarning
 import numpy as np
-pd.set_option('display.max_columns', None)
+import quantstats
+import seaborn as sns
+from pylab import mpl, plt
+from Data_manager import Data_manager
+from Utils import Utils
+plt.style.use('seaborn')
+mpl.rcParams['savefig.dpi'] = 300
+mpl.rcParams['font.family'] = 'serif'
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_validate, cross_val_predict
+from sklearn.ensemble import RandomForestClassifier
+pd.set_option('display.max_columns', 500)
+import Train_test_split as For_test_split
+from sklearn.base import clone
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
+import os
 
 
-signal = [1,1,1,-1,-1,1,-1,-1,-1]
+########## inputs ###############
+coin = 'BTC-USD'
+s_date = '2015-01-01'
 
-df = pd.DataFrame(data=signal, columns=['signal'])
-df['signal_shifted'] = df['signal'].shift(1)
-df['diff'] = df['signal'] - df['signal_shifted']
-sig_arr = np.where(df['diff'] != 0, -1, 1)
 
-if df['signal'].iloc[0] == 1:
-    sig_arr[0] = 1
-else:
-    sig_arr[0] = -1
+dm = Data_manager(coin, s_date, search_term=search_term, path='local_file') #path='local_file' looks for files in local folder
+dm.download_price_data()
+#dm.merge_search_with_price_data()
+dm.features_engineering_RSI(l4)
 
-print(df)
-print(sig_arr)

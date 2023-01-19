@@ -283,6 +283,7 @@ class BacktestLongShort(Backtester):
                 price_change = price - prev_price
 
             #check if short positions are open from previous time step and charge fees
+            #TODO: this is not how short fees are charged.
             if asset_units < 0:
                 self.current_cash_balance -= np.abs(asset_units) * price * self.spi_d
 

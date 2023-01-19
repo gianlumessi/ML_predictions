@@ -68,12 +68,12 @@ lags_rsi = [7, 14, 28, 60, 90]
 dm = Data_manager(coin, s_date, where='yahoo')# search_term=search_term, path='local_file')
 dm.download_price_data()
 dm.features_engineering_for_dec_tree(lags_p_smas, lags_smas, lags_rsi)
-feature_cols = dm.feature_cols
+feature_cols = dm.feature_names
 
 print('Feature cols:', feature_cols)
 
 ## Split data into training and test set
-data = dm.df
+data = dm.data
 training_data = data.loc[:date_split]
 test_data = data.loc[date_split:]
 
@@ -164,7 +164,7 @@ bt_l = BacktestLongShort(cash_balance, bt_data, col_name_dict, min_order_size, f
 bt_l.bt_long_only_signal()
 bt_l.plot_strategy_vs_asset()
 
-result_data = dm.get_result_data(test_data, predictions)
+result_data = dm.run_simple_backtest(test_data, predictions)
 Utils.plot_oos_results(result_data, '- Out of sample results, Hyper params optimisation via genetic algo ' + coin)
 
 plt.show()

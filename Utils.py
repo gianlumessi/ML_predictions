@@ -47,6 +47,8 @@ class Utils:
         fig.suptitle(ttl)
         plt.tight_layout()
 
+        return fig
+
 
     @staticmethod
     def show_confusion_matrix(Y, x, ttl):
@@ -68,12 +70,12 @@ class Utils:
         dm.download_price_data()
         dm.merge_search_with_price_data()
         dm.features_engineering_for_dec_tree(lags_p_smas, lags_smas, lags_rsi, lags_std)
-        feature_cols = dm.feature_cols
+        feature_cols = dm.feature_names
 
         print('Feature cols:', feature_cols)
 
         ## Split data into training and test set
-        data = dm.df
+        data = dm.data
         training_data = data.loc[:date_split]
         test_data = data.loc[date_split:]
 
@@ -135,7 +137,7 @@ class Utils:
         predictions = evolved_model.predict(X_test_best_features)
         print('\n- Accuracy score on test set (' + model_name + '):\t', accuracy_score(Y_test, predictions), '\n')
         Utils.show_confusion_matrix(Y_test, predictions, model_name + ' with best features found via ga')
-        result_data = dm.get_result_data(test_data, predictions)
+        result_data = dm.run_simple_backtest(test_data, predictions)
         Utils.plot_oos_results(result_data, 'Out of sample results using best features found via ga for ' + model_name)
 
         if is_dec_tree:
@@ -172,6 +174,6 @@ class Utils:
               model_name +':\t', accuracy_score(Y_test, predictions), '\n')
         Utils.show_confusion_matrix(Y_test, predictions, 'Hyper params optimisation via genetic algo on ' +
                                     model_name + '')
-        result_data = dm.get_result_data(test_data, predictions)
+        result_data = dm.run_simple_backtest(test_data, predictions)
         Utils.plot_oos_results(result_data, 'Out of sample results, hyper params optimisation via genetic algo on ' +
                                model_name + '')

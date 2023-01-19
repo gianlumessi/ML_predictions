@@ -63,12 +63,12 @@ dm = Data_manager(coin, s_date, search_term=search_term, path='local_file') #pat
 dm.download_price_data()
 dm.merge_search_with_price_data()
 dm.features_engineering_for_dec_tree(lags_p_smas, lags_smas, lags_rsi)
-feature_cols = dm.feature_cols
+feature_cols = dm.feature_names
 
 print('Feature cols:', feature_cols)
 
 ## Split data into training and test set
-data = dm.df
+data = dm.data
 training_data = data.loc[:date_split]
 test_data = data.loc[date_split:]
 
@@ -207,7 +207,7 @@ if False:
     predictions = model_cart.predict(X_test_best_features)
     print('\n- Accuracy score on test set (CART after grid search):\t', score_meth(Y_test, predictions), '\n')
     Utils.show_confusion_matrix(Y_test, predictions, 'CART after grid search')
-    result_data = dm.get_result_data(test_data, predictions)
+    result_data = dm.run_simple_backtest(test_data, predictions)
     Utils.plot_oos_results(result_data, 'Out of sample results, CART after grid search')
     plot_tree_(model_cart, best_features)
 
