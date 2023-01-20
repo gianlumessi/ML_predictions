@@ -187,7 +187,7 @@ class Data_manager:
 
         self.data = self.data.drop(list_to_drop, axis=1)
 
-    def run_simple_backtest(self, df, preds=None, trading_costs=None, strategy_type=None):
+    def run_simple_backtest(self, df, preds=None, trading_costs=None, strategy_type='long_only'):
         '''
         Run a backtest using vectorization approach. !!! Note that the prediction at time t_i indicates that you should:
         buy/sell at t_{i+1} open price, not t_{i+1} closing price!!! For cryptos the t_{i+1} open price is equal to t_i

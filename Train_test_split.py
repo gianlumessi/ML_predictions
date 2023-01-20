@@ -153,6 +153,9 @@ class Period_search_split():
         self.X = X
         self.train_period = train_period
 
+    def get_train_period(self):
+        return self.X.loc[self.train_period[0]:self.train_period[-1]].index
+
     def get_test_periods(self):
         '''
         :return: the test periods
@@ -161,18 +164,18 @@ class Period_search_split():
 
         init_prev_dt = self.train_period[0] #string, e.g. '2022-12-31'
         init_prev_dt = self.X.loc[init_prev_dt].name # date format, e.g. 2022-01-01 00:00:00
-        end_cur_idx = 999999
+        #end_cur_idx = 999999
+        init_cur_idx = 999999
 
-        while end_cur_idx - n_samples > 0:
+        while init_cur_idx - n_samples > 0:
             end_cur_idx = list(self.X.index).index(init_prev_dt) - 1
             end_cur_dt = self.X.index[end_cur_idx]
             init_cur_idx = end_cur_idx - n_samples
             init_cur_dt = self.X.index[init_cur_idx]
 
-            yield init_cur_dt, end_cur_dt
+            yield self.X.loc[init_cur_dt:end_cur_dt].index#init_cur_dt, end_cur_dt
 
             init_prev_dt = init_cur_dt#self.X.index[init_cur_idx-n_samples]#end_cur_dt
-
 
 if __name__ == "__main__":
     n = 95
